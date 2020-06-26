@@ -905,7 +905,12 @@ bool TreeToLLVM::TargetIntrinsicLower(
   case movntq:
   case movntsd:
   case movntss: {
+#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 5)
     MDNode *Node = MDNode::get(Context, Builder.getInt32(1));
+#else
+    Metadata *elt = ConstantAsMetadata::get(Builder.getInt32(1));
+    MDNode *Node = MDNode::get(Context, elt);
+#endif
 
     // Convert the type of the pointer to a pointer to the stored type.
     unsigned AS = Ops[0]->getType()->getPointerAddressSpace();

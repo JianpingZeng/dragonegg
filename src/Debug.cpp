@@ -235,17 +235,23 @@ void DebugInfo::EmitFunctionStart(tree FnDecl, Function *Fn) {
 
   unsigned lineno = CurLineNo;
 
-  std::map<tree_node *, WeakVH>::iterator I = SPCache.find(FnDecl);
+  auto I = SPCache.find(FnDecl);
   if (I != SPCache.end()) {
     DISubprogram SPDecl(cast<MDNode>(I->second));
     DISubprogram SP = CreateSubprogramDefinition(SPDecl, lineno, Fn);
-    SPDecl->replaceAllUsesWith(SP);
 
+#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 5)
+    SPDecl->replaceAllUsesWith(SP);
     // Push function on region stack.
     RegionStack.push_back(WeakVH(SP));
     RegionMap[FnDecl] = WeakVH(SP);
+#else
+    RegionStack.emplace_back(SP);
+    RegionMap[FnDecl].reset(SP);
+#endif
     return;
   }
+
 
   bool ArtificialFnWithAbstractOrigin = false;
   // If this artificial function has abstract origin then put this function
@@ -264,11 +270,15 @@ void DebugInfo::EmitFunctionStart(tree FnDecl, Function *Fn) {
   if (I != SPCache.end()) {
     DISubprogram SPDecl(cast<MDNode>(I->second));
     DISubprogram SP = CreateSubprogramDefinition(SPDecl, lineno, Fn);
+#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 5)
     SPDecl->replaceAllUsesWith(SP);
-
     // Push function on region stack.
     RegionStack.push_back(WeakVH(SP));
     RegionMap[FnDecl] = WeakVH(SP);
+#else
+    RegionStack.emplace_back(SP);
+    RegionMap[FnDecl].reset(SP);
+#endif
     return;
   }
 
@@ -294,16 +304,24 @@ void DebugInfo::EmitFunctionStart(tree FnDecl, Function *Fn) {
       FNType, Fn->hasInternalLinkage(), true /*definition*/, Virtuality, VIndex,
       ContainingType, DECL_ARTIFICIAL(FnDecl), optimize, Fn);
 
+#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 5)
   SPCache[FnDecl] = WeakVH(SP);
 
   // Push function on region stack.
   RegionStack.push_back(WeakVH(SP));
   RegionMap[FnDecl] = WeakVH(SP);
+#else
+  SPCache[FnDecl].reset(SP);
+
+  // Push function on region stack.
+  RegionStack.emplace_back(SP);
+  RegionMap[FnDecl].reset(SP);
+#endif
 }
 
 /// getOrCreateNameSpace - Get name space descriptor for the tree node.
 DINameSpace DebugInfo::getOrCreateNameSpace(tree Node, DIDescriptor Context) {
-  std::map<tree_node *, WeakVH>::iterator I = NameSpaceCache.find(Node);
+  auto I = NameSpaceCache.find(Node);
   if (I != NameSpaceCache.end())
     return DINameSpace(cast<MDNode>(I->second));
 
@@ -311,7 +329,11 @@ DINameSpace DebugInfo::getOrCreateNameSpace(tree Node, DIDescriptor Context) {
   DINameSpace DNS = Builder.createNameSpace(
       Context, GetNodeName(Node), getOrCreateFile(Loc.file), Loc.line);
 
+#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 5)
   NameSpaceCache[Node] = WeakVH(DNS);
+#else
+  NameSpaceCache[Node].reset(DNS);
+#endif
   return DNS;
 }
 
@@ -320,7 +342,7 @@ DIDescriptor DebugInfo::findRegion(tree Node) {
   if (Node == NULL_TREE)
     return getOrCreateFile(main_input_filename);
 
-  std::map<tree_node *, WeakVH>::iterator I = RegionMap.find(Node);
+  auto I = RegionMap.find(Node);
   if (I != RegionMap.end())
     if (MDNode *R = dyn_cast_or_null<MDNode>(&*I->second))
       return DIDescriptor(R);
@@ -377,7 +399,12 @@ void DebugInfo::EmitDeclare(tree decl, unsigned Tag, StringRef Name, tree type,
   llvm::DIVariable D = Builder.createLocalVariable(
       Tag, VarScope, Name, getOrCreateFile(Loc.file), Loc.line, Ty, optimize);
 
+#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 5)
   Instruction *Call = Builder.insertDeclare(AI, D, IRBuilder.GetInsertBlock());
+#else
+  Instruction *Call = Builder.insertDeclare(AI, D, Builder.createExpression(),
+                                            IRBuilder.GetInsertBlock());
+#endif
 
   Call->setDebugLoc(DebugLoc::get(Loc.line, 0, VarScope));
 }
@@ -422,9 +449,16 @@ void DebugInfo::EmitGlobalVariable(GlobalVariable *GV, tree decl) {
   if (DECL_CONTEXT(decl))
     if (!isa<FUNCTION_DECL>(DECL_CONTEXT(decl)))
       LinkageName = GV->getName();
+#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 5)
   Builder.createStaticVariable(
       findRegion(DECL_CONTEXT(decl)), DispName, LinkageName,
       getOrCreateFile(Loc.file), Loc.line, TyD, GV->hasInternalLinkage(), GV);
+#else
+  Builder.createGlobalVariable(
+      findRegion(DECL_CONTEXT(decl)), DispName, LinkageName,
+      getOrCreateFile(Loc.file), Loc.line, TyD, GV->hasInternalLinkage(), GV);
+
+#endif
 }
 
 /// createBasicType - Create BasicType.
@@ -492,13 +526,25 @@ DIType DebugInfo::createMethodType(tree type) {
     findRegion(TYPE_CONTEXT(type)), getOrCreateFile(main_input_filename),
     0, 0, 0, 0);
   llvm::MDNode *FTN = FwdType;
+
+#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 5)
   llvm::TrackingVH<llvm::MDNode> FwdTypeNode = FTN;
   TypeCache[type] = WeakVH(FwdType);
   // Push the struct on region stack.
   RegionStack.push_back(WeakVH(FwdType));
   RegionMap[type] = WeakVH(FwdType);
+#else
+  TypeCache[type].reset(FwdType);
+  // Push the struct on region stack.
+  RegionStack.emplace_back(FwdType);
+  RegionMap[type].reset(FwdType);
+#endif
 
+#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 5)
   llvm::SmallVector<Value*, 16> EltTys;
+#else
+  llvm::SmallVector<Metadata*, 16> EltTys;
+#endif
 
   // Add the result type at least.
   EltTys.push_back(getOrCreateType(TREE_TYPE(type)));
@@ -519,10 +565,14 @@ DIType DebugInfo::createMethodType(tree type) {
       ProcessedFirstArg = true;
   }
 
+#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 5)
   DIArray EltTypeArray = Builder.getOrCreateArray(EltTys);
+#else
+  DITypeArray EltTypeArray = Builder.getOrCreateTypeArray(EltTys);
+#endif
 
   RegionStack.pop_back();
-  std::map<tree_node *, WeakVH>::iterator RI = RegionMap.find(type);
+  auto RI = RegionMap.find(type);
   if (RI != RegionMap.end())
     RegionMap.erase(RI);
 
@@ -532,7 +582,10 @@ DIType DebugInfo::createMethodType(tree type) {
 
   // Now that we have a real decl for the struct, replace anything using the
   // old decl with the new one.  This will recursively update the debug info.
+
+#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 5)
   llvm::DIType(FwdTypeNode).replaceAllUsesWith(RealType);
+#endif
 
   return RealType;
 }
@@ -555,7 +608,11 @@ DIType DebugInfo::createPointerType(tree type) {
           Tag, findRegion(DECL_CONTEXT(TyName)), GetNodeName(TyName),
           getOrCreateFile(TypeNameLoc.file), TypeNameLoc.line, 0 /*size*/,
           0 /*align*/, 0 /*offset */, 0 /*flags*/, FromTy);
+#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 5)
       TypeCache[TyName] = WeakVH(Ty);
+#else
+      TypeCache[TyName].reset(Ty);
+#endif
       return Ty;
     }
 
@@ -573,7 +630,11 @@ DIType DebugInfo::createArrayType(tree type) {
   // Add the dimensions of the array.  FIXME: This loses CV qualifiers from
   // interior arrays, do we care?  Why aren't nested arrays represented the
   // obvious/recursive way?
+#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 5)
   llvm::SmallVector<Value*, 8> Subscripts;
+#else
+  llvm::SmallVector<Metadata*, 8> Subscripts;
+#endif
 
   // There will be ARRAY_TYPE nodes for each rank.  Followed by the derived
   // type.
@@ -613,7 +674,11 @@ DIType DebugInfo::createArrayType(tree type) {
 /// createEnumType - Create EnumType.
 DIType DebugInfo::createEnumType(tree type) {
   // enum { a, b, ..., z };
+#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 5)
   llvm::SmallVector<Value*, 32> Elements;
+#else
+  llvm::SmallVector<Metadata*, 32> Elements;
+#endif
 
   if (TYPE_SIZE(type)) {
     for (tree Link = TYPE_VALUES(type); Link; Link = TREE_CHAIN(Link)) {
@@ -682,7 +747,7 @@ DIType DebugInfo::createStructType(tree type) {
   // Check if this type is created while creating context information
   // descriptor.
   {
-    std::map<tree_node *, WeakVH>::iterator I = TypeCache.find(type);
+    auto I = TypeCache.find(type);
     if (I != TypeCache.end())
       if (MDNode *TN = dyn_cast_or_null<MDNode>(&*I->second))
         return DIType(TN);
@@ -698,15 +763,27 @@ DIType DebugInfo::createStructType(tree type) {
 
   // Insert into the TypeCache so that recursive uses will find it.
   llvm::MDNode *FDN = FwdDecl;
+#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 5)
   llvm::TrackingVH<llvm::MDNode> FwdDeclNode = FDN;
   TypeCache[type] = WeakVH(FwdDecl);
 
   // Push the struct on region stack.
   RegionStack.push_back(WeakVH(FwdDecl));
   RegionMap[type] = WeakVH(FwdDecl);
+#else
+  TypeCache[type].reset(FwdDecl);
+
+  // Push the struct on region stack.
+  RegionStack.emplace_back(FwdDecl);
+  RegionMap[type].reset(FwdDecl);
+#endif
 
   // Convert all the elements.
+#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 5)
   llvm::SmallVector<Value*, 16> EltTys;
+#else
+  llvm::SmallVector<Metadata*, 16> EltTys;
+#endif
 
   if (tree binfo = TYPE_BINFO(type)) {
     for (unsigned i = 0, e = BINFO_N_BASE_BINFOS(binfo); i != e; ++i) {
@@ -792,7 +869,7 @@ DIType DebugInfo::createStructType(tree type) {
     if (DECL_P(Member) && DECL_IGNORED_P(Member))
       continue;
 
-    std::map<tree_node *, WeakVH>::iterator I = SPCache.find(Member);
+    auto I = SPCache.find(Member);
     if (I != SPCache.end())
       EltTys.push_back(DISubprogram(cast<MDNode>(I->second)));
     else {
@@ -816,14 +893,18 @@ DIType DebugInfo::createStructType(tree type) {
           Virtuality, VIndex, ContainingType, DECL_ARTIFICIAL(Member),
           optimize);
       EltTys.push_back(SP);
+#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 5)
       SPCache[Member] = WeakVH(SP);
+#else
+      SPCache[Member].reset(SP);
+#endif
     }
   }
 
   llvm::DIArray Elements = Builder.getOrCreateArray(EltTys);
 
   RegionStack.pop_back();
-  std::map<tree_node *, WeakVH>::iterator RI = RegionMap.find(type);
+  auto RI = RegionMap.find(type);
   if (RI != RegionMap.end())
     RegionMap.erase(RI);
 
@@ -837,12 +918,18 @@ DIType DebugInfo::createStructType(tree type) {
       getOrCreateFile(Loc.file), Loc.line, NodeSizeInBits(type),
       NodeAlignInBits(type), 0, SFlags, llvm::DIType(), Elements, RunTimeLang,
       ContainingType);
+#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 5)
   RegionMap[type] = WeakVH(RealDecl);
+#else
+  RegionMap[type].reset(RealDecl);
+#endif
 
   // Now that we have a real decl for the struct, replace anything using the
   // old decl with the new one.  This will recursively update the debug info.
-  llvm::DIType(FwdDeclNode).replaceAllUsesWith(RealDecl);
 
+#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 5)
+  llvm::DIType(FwdDeclNode).replaceAllUsesWith(RealDecl);
+#endif
   return RealDecl;
 }
 
@@ -851,7 +938,7 @@ DIType DebugInfo::createVariantType(tree type, DIType MainTy) {
 
   DIType Ty;
   if (tree TyDef = TYPE_NAME(type)) {
-    std::map<tree_node *, WeakVH>::iterator I = TypeCache.find(TyDef);
+    auto I = TypeCache.find(TyDef);
     if (I != TypeCache.end())
       if (I->second)
         return DIType(cast<MDNode>(I->second));
@@ -861,7 +948,11 @@ DIType DebugInfo::createVariantType(tree type, DIType MainTy) {
           DW_TAG_typedef, findRegion(DECL_CONTEXT(TyDef)), GetNodeName(TyDef),
           getOrCreateFile(TypeDefLoc.file), TypeDefLoc.line, 0 /*size*/,
           0 /*align*/, 0 /*offset */, 0 /*flags*/, MainTy);
+#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 5)
       TypeCache[TyDef] = WeakVH(Ty);
+#else
+      TypeCache[TyDef].reset(Ty);
+#endif
       return Ty;
     }
   }
@@ -883,7 +974,11 @@ DIType DebugInfo::createVariantType(tree type, DIType MainTy) {
         0 /* flags */, MainTy);
 
   if (TYPE_VOLATILE(type) || TYPE_READONLY(type)) {
+#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 5)
     TypeCache[type] = WeakVH(Ty);
+#else
+    TypeCache[type].reset(Ty);
+#endif
     return Ty;
   }
 
@@ -903,7 +998,7 @@ DIType DebugInfo::getOrCreateType(tree type) {
     return DIType();
 
   // Check to see if the compile unit already has created this type.
-  std::map<tree_node *, WeakVH>::iterator I = TypeCache.find(type);
+  auto I = TypeCache.find(type);
   if (I != TypeCache.end())
     if (I->second)
       return DIType(cast<MDNode>(I->second));
@@ -966,7 +1061,11 @@ DIType DebugInfo::getOrCreateType(tree type) {
     Ty = createBasicType(type);
     break;
   }
+#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 5)
   TypeCache[type] = WeakVH(Ty);
+#else
+  TypeCache[type].reset(Ty);
+#endif
   return Ty;
 }
 
@@ -1156,6 +1255,13 @@ DISubprogram DebugInfo::CreateSubprogramDefinition(
 // Routines for inserting code into a function
 //===----------------------------------------------------------------------===//
 
+#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 6)
+static Value *getDbgIntrinsicValueImpl(LLVMContext &VMContext, Value *V) {
+  assert(V && "no value passed to dbg intrinsic");
+  return MetadataAsValue::get(VMContext, ValueAsMetadata::get(V));
+}
+#endif
+
 /// InsertDeclare - Insert a new llvm.dbg.declare intrinsic call.
 Instruction *DebugInfo::InsertDeclare(Value *Storage, DIVariable D,
                                       Instruction *InsertBefore) {
@@ -1164,7 +1270,12 @@ Instruction *DebugInfo::InsertDeclare(Value *Storage, DIVariable D,
   if (!DeclareFn)
     DeclareFn = Intrinsic::getDeclaration(&M, Intrinsic::dbg_declare);
 
+#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 5)
   Value *Args[] = { MDNode::get(Storage->getContext(), Storage), D };
+#else
+  Value *Args[] = {getDbgIntrinsicValueImpl(Storage->getContext(), Storage),
+                   MetadataAsValue::get(Storage->getContext(), D)};
+#endif
   return CallInst::Create(DeclareFn, Args, "", InsertBefore);
 }
 
@@ -1176,7 +1287,12 @@ Instruction *DebugInfo::InsertDeclare(Value *Storage, DIVariable D,
   if (!DeclareFn)
     DeclareFn = Intrinsic::getDeclaration(&M, Intrinsic::dbg_declare);
 
+#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 5)
   Value *Args[] = { MDNode::get(Storage->getContext(), Storage), D };
+#else
+  Value *Args[] = {getDbgIntrinsicValueImpl(Storage->getContext(), Storage),
+                   MetadataAsValue::get(Storage->getContext(), D)};
+#endif
 
   // If this block already has a terminator then insert this intrinsic
   // before the terminator.
@@ -1194,9 +1310,15 @@ Instruction *DebugInfo::InsertDbgValueIntrinsic(
   if (!ValueFn)
     ValueFn = Intrinsic::getDeclaration(&M, Intrinsic::dbg_value);
 
+#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 5)
   Value *Args[] = { MDNode::get(V->getContext(), V),
                     ConstantInt::get(Type::getInt64Ty(V->getContext()), Offset),
                     D };
+#else
+  Value *Args[] = { getDbgIntrinsicValueImpl(V->getContext(), V),
+                    ConstantInt::get(Type::getInt64Ty(V->getContext()), Offset),
+                    MetadataAsValue::get(V->getContext(), D)};
+#endif
   return CallInst::Create(ValueFn, Args, "", InsertBefore);
 }
 
@@ -1208,8 +1330,14 @@ Instruction *DebugInfo::InsertDbgValueIntrinsic(
   if (!ValueFn)
     ValueFn = Intrinsic::getDeclaration(&M, Intrinsic::dbg_value);
 
+#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 5)
   Value *Args[] = { MDNode::get(V->getContext(), V),
                     ConstantInt::get(Type::getInt64Ty(V->getContext()), Offset),
                     D };
+#else
+  Value *Args[] = { getDbgIntrinsicValueImpl(V->getContext(), V),
+                    ConstantInt::get(Type::getInt64Ty(V->getContext()), Offset),
+                    MetadataAsValue::get(V->getContext(), D)};
+#endif
   return CallInst::Create(ValueFn, Args, "", InsertAtEnd);
 }

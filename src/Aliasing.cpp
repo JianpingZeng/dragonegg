@@ -23,10 +23,12 @@
 
 // Plugin headers
 #include "dragonegg/Aliasing.h"
-#include "llvm/ADT/SmallVector.h"
+#include "dragonegg/Internals.h"
+
 
 // LLVM headers
 #include "llvm/ADT/Twine.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/Metadata.h"
@@ -137,7 +139,12 @@ MDNode *describeAliasSet(tree t) {
       MDNode *&LeafTag = NodeTags[leaf_set];
       // It would be neat to strip the tbaa tag from any instructions using it
       // but it is simpler to just replace it with the root tag everywhere.
-      LeafTag->replaceAllUsesWith(getTBAARoot());
+
+      // Since LLVM 3.6, MDNode is typeless which means it doesn't inherit
+      // from Value so that there is no replaceAllUsesWith function call.
+      #if LLVM_VERSION_CODE <= LLVM_VERSION(3, 5)
+        LeafTag->replaceAllUsesWith(getTBAARoot());
+      #endif
       LeafTag = 0;
     }
   }

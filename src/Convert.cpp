@@ -571,7 +571,11 @@ static void StoreRegisterToMemory(Value *V, MemRef Loc, tree type,
 TreeToLLVM *TheTreeToLLVM = 0;
 
 const DataLayout &getDataLayout() {
+  #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 6)
+  return *TheTarget->getSubtargetImpl()->getDataLayout();
+  #else
   return *TheTarget->getDataLayout();
+  #endif
 }
 
 /// EmitDebugInfo - Return true if debug info is to be emitted for current
@@ -2704,7 +2708,11 @@ void TreeToLLVM::EmitLandingPads() {
             for (tree type = c->type_list; type; type = TREE_CHAIN(type)) {
               Constant *TypeInfo = ConvertTypeInfo(TREE_VALUE(type));
               // No point in trying to catch a typeinfo that was already caught.
+#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 6)
+              if (!AlreadyCaught.insert(TypeInfo).second)
+#else
               if (!AlreadyCaught.insert(TypeInfo))
+#endif
                 continue;
               LPadInst->addClause(TypeInfo);
             }
@@ -8631,7 +8639,11 @@ bool TreeToLLVM::EmitBuiltinCall(gimple stmt, tree fndecl,
       if (gimple_has_location(stmt)) {
         // Pass the location of the asm using a !srcloc metadata.
         Constant *LocationCookie = Builder.getInt64(gimple_location(stmt));
+#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 6)
+        CV->setMetadata("srcloc", MDNode::get(Context, ConstantAsMetadata::get(LocationCookie)));
+#else
         CV->setMetadata("srcloc", MDNode::get(Context, LocationCookie));
+#endif
       }
 
       // If the call produces a value, store it into the destination.
@@ -8660,7 +8672,11 @@ bool TreeToLLVM::EmitBuiltinCall(gimple stmt, tree fndecl,
       // Give the backend a chance to upgrade the inline asm to LLVM code.  This
       // handles some common cases that LLVM has intrinsics for, e.g. x86 bswap ->
       // llvm.bswap.
+#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 6)
+      if (const TargetLowering *TLI = TheTarget->getSubtargetImpl()->getTargetLowering())
+#else
       if (const TargetLowering *TLI = TheTarget->getTargetLowering())
+#endif
         TLI->ExpandInlineAsm(CV);
     }
 
@@ -8797,7 +8813,11 @@ bool TreeToLLVM::EmitBuiltinCall(gimple stmt, tree fndecl,
           for (tree type = c->type_list; type; type = TREE_CHAIN(type)) {
             Value *TypeInfo = ConvertTypeInfo(TREE_VALUE(type));
             // No point in trying to catch a typeinfo that was already caught.
+#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 6)
+            if (!AlreadyCaught.insert(TypeInfo).second)
+#else
             if (!AlreadyCaught.insert(TypeInfo))
+#endif
               continue;
 
             TypeInfo = Builder.CreateBitCast(TypeInfo, Builder.getInt8PtrTy());

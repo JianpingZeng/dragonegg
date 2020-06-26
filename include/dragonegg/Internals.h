@@ -23,6 +23,9 @@
 #ifndef DRAGONEGG_INTERNALS_H
 #define DRAGONEGG_INTERNALS_H
 
+#define LLVM_VERSION(major, minor) (((major) << 8) | (minor))
+#define LLVM_VERSION_CODE LLVM_VERSION(LLVM_MAJOR, LLVM_MINOR)
+
 // LLVM headers
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SetVector.h"

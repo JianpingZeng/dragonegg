@@ -27,6 +27,7 @@
 #include "dragonegg/OS.h"
 #include "dragonegg/Target.h"
 #include "dragonegg/TypeConversion.h"
+#include "dragonegg/Internals.h"
 
 // LLVM headers
 #include "llvm/ADT/STLExtras.h"
@@ -314,7 +315,11 @@ static bool SizeOfGlobalMatchesDecl(GlobalValue *GV, tree decl) {
   // TODO: Change getTypeSizeInBits for aggregate types so it is no longer
   // rounded up to the alignment.
   uint64_t gcc_size = getInt64(DECL_SIZE(decl), true);
-  const DataLayout *DL = TheTarget->getDataLayout();
+  #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 6)
+    const DataLayout *DL = TheTarget->getSubtargetImpl()->getDataLayout();
+  #else
+    const DataLayout *DL = TheTarget->getDataLayout();
+  #endif
   unsigned Align = 8 * DL->getABITypeAlignment(Ty);
   return DL->getTypeAllocSizeInBits(Ty) == ((gcc_size + Align - 1) / Align) * Align;
 }
@@ -533,8 +538,12 @@ static void CreateTargetMachine(const std::string &TargetTriple) {
 
   TheTarget = TME->createTargetMachine(TargetTriple, CPU, FeatureStr, Options,
                                        RelocModel, CMModel, CodeGenOptLevel());
-  assert(TheTarget->getDataLayout()->isBigEndian() ==
-         BYTES_BIG_ENDIAN);
+  #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 6)
+    const DataLayout *DL = TheTarget->getSubtargetImpl()->getDataLayout();
+  #else
+    const DataLayout *DL = TheTarget->getDataLayout();
+  #endif
+  assert(DL->isBigEndian() == BYTES_BIG_ENDIAN);
 }
 
 /// output_ident - Insert a .ident directive that identifies the plugin.
@@ -549,7 +558,7 @@ static void output_ident(const char *ident_str) {
   Directive += "\"";
   Directive += ident_str;
   Directive += " LLVM: ";
-  Directive += LLVM_VERSION;
+  Directive += LLVM_VERSION_STRING;
   Directive += "\"";
   TheModule->setModuleInlineAsm(Directive);
 }
@@ -582,8 +591,12 @@ static void CreateModule(const std::string &TargetTriple) {
   // Install information about the target triple and data layout into the module
   // for optimizer use.
   TheModule->setTargetTriple(TargetTriple);
-  TheModule->setDataLayout(TheTarget->getDataLayout()
-                           ->getStringRepresentation());
+  #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 6)
+    const DataLayout *DL = TheTarget->getSubtargetImpl()->getDataLayout();
+  #else
+    const DataLayout *DL = TheTarget->getDataLayout();
+  #endif
+  TheModule->setDataLayout(DL->getStringRepresentation());
 }
 
 /// flag_default_initialize_globals - Whether global variables with no explicit
@@ -643,8 +656,12 @@ static void InitializeBackend(void) {
 
   // Create a module to hold the generated LLVM IR.
   CreateModule(TargetTriple);
-
-  TheFolder = new TargetFolder(TheTarget->getDataLayout());
+  #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 6)
+    const DataLayout *DL = TheTarget->getSubtargetImpl()->getDataLayout();
+  #else
+    const DataLayout *DL = TheTarget->getDataLayout();
+  #endif
+  TheFolder = new TargetFolder(DL);
 
   if (debug_info_level > DINFO_LEVEL_NONE) {
     TheDebugInfo = new DebugInfo(TheModule);
@@ -673,13 +690,22 @@ static void InitializeBackend(void) {
 /// InitializeOutputStreams - Initialize the assembly code output streams.
 static void InitializeOutputStreams(bool Binary) {
   assert(!OutStream && "Output stream already initialized!");
-  std::string EC;
+  #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 6)
+    std::error_code EC;
+  #else
+    std::string EC;
+  #endif
 
   OutStream = new raw_fd_ostream(llvm_asm_file_name, EC,
                                  Binary ? sys::fs::F_None : sys::fs::F_Text);
 
-  if (!EC.empty())
-    report_fatal_error(EC);
+  #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 6)
+    if (EC)
+      report_fatal_error(EC.message());
+  #else
+    if (!EC.empty())
+      report_fatal_error(EC);
+  #endif
 
   FormattedOutStream.setStream(*OutStream,
                                formatted_raw_ostream::PRESERVE_STREAM);
@@ -692,7 +718,13 @@ static void createPerFunctionOptimizationPasses() {
   // Create and set up the per-function pass manager.
   // FIXME: Move the code generator to be function-at-a-time.
   PerFunctionPasses = new FunctionPassManager(TheModule);
-  PerFunctionPasses->add(new DataLayoutPass(TheModule));
+
+  #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 6)
+    PerFunctionPasses->add(new DataLayoutPass());
+  #else
+    PerFunctionPasses->add(new DataLayoutPass(TheModule));
+  #endif
+
   TheTarget->addAnalysisPasses(*PerFunctionPasses);
 
 #ifndef NDEBUG
@@ -738,7 +770,13 @@ static void createPerModuleOptimizationPasses() {
     return;
 
   PerModulePasses = new PassManager();
-  PerModulePasses->add(new DataLayoutPass(TheModule));
+
+  #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 6)
+    PerFunctionPasses->add(new DataLayoutPass());
+  #else
+    PerFunctionPasses->add(new DataLayoutPass(TheModule));
+  #endif
+
   TheTarget->addAnalysisPasses(*PerModulePasses);
 
   Pass *InliningPass;
@@ -782,7 +820,11 @@ static void createPerModuleOptimizationPasses() {
     // this for fast -O0 compiles!
     if (PerModulePasses || 1) {
       PassManager *PM = CodeGenPasses = new PassManager();
-      PM->add(new DataLayoutPass(TheModule));
+      #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 6)
+      PerFunctionPasses->add(new DataLayoutPass());
+      #else
+      PerFunctionPasses->add(new DataLayoutPass(TheModule));
+      #endif
       TheTarget->addAnalysisPasses(*PM);
 
 // Request that addPassesToEmitFile run the Verifier after running
@@ -2142,7 +2184,7 @@ static FlagDescriptor PluginFlags[] = {
 /// llvm_plugin_info - Information about this plugin.  Users can access this
 /// using "gcc --help -v".
 static struct plugin_info llvm_plugin_info = {
-  LLVM_VERSION, // version
+  LLVM_VERSION_STRING, // version
                 // TODO provide something useful here
   NULL          // help
 };
