@@ -31,8 +31,8 @@
    (isVoid || hasArgList). */
 
 /* from  TARGET_AAPCS_BASED */
-#define DEFAULT_TARGET_AAPCS_BASED(ARM_DEFAULT_ABI != ARM_ABI_APCS &&          \
-                                   ARM_DEFAULT_ABI != ARM_ABI_ATPCS)
+#define DEFAULT_TARGET_AAPCS_BASED (ARM_DEFAULT_ABI != ARM_ABI_APCS &&          \
+                                    ARM_DEFAULT_ABI != ARM_ABI_ATPCS)
 
 #define TARGET_ADJUST_LLVM_CC(CC, type)                                        \
   {                                                                            \
@@ -40,38 +40,39 @@
       if (TARGET_VFP && TARGET_HARD_FLOAT_ABI &&                               \
           ((TYPE_ARG_TYPES(type) == 0) ||                                      \
            (TREE_VALUE(tree_last(TYPE_ARG_TYPES(type))) == void_type_node)))   \
-        CC = CallingConv::ARM_AAPCS_VFP;                                       \
+        CC = llvm::CallingConv::ARM_AAPCS_VFP;                                       \
       else if (!DEFAULT_TARGET_AAPCS_BASED)                                    \
-        CC = CallingConv::ARM_AAPCS;                                           \
+        CC = llvm::CallingConv::ARM_AAPCS;                                           \
     } else if (DEFAULT_TARGET_AAPCS_BASED) {                                   \
-      CC = CallingConv::ARM_APCS;                                              \
+      CC = llvm::CallingConv::ARM_APCS;                                              \
     }                                                                          \
   }
 
 #ifdef DRAGONEGG_ABI_H
 
+
 extern bool llvm_arm_should_pass_aggregate_in_mixed_regs(
-    tree_node *, Type *Ty, CallingConv::ID, std::vector<Type *> &);
+    tree_node *, llvm::Type *Ty, llvm::CallingConv::ID, std::vector<llvm::Type *> &);
 
 #define LLVM_SHOULD_PASS_AGGREGATE_IN_MIXED_REGS(T, TY, CC, E)                 \
   llvm_arm_should_pass_aggregate_in_mixed_regs((T), (TY), (CC), (E))
 
 struct DefaultABIClient;
 extern bool llvm_arm_try_pass_aggregate_custom(
-    tree_node *, std::vector<Type *> &, CallingConv::ID CC,
+    tree_node *, std::vector<llvm::Type *> &, llvm::CallingConv::ID CC,
     struct DefaultABIClient *);
 
 #define LLVM_TRY_PASS_AGGREGATE_CUSTOM(T, E, CC, C)                            \
   llvm_arm_try_pass_aggregate_custom((T), (E), (CC), (C))
 
 extern bool llvm_arm_aggregate_partially_passed_in_regs(
-    std::vector<Type *> &, std::vector<Type *> &, CallingConv::ID CC);
+    std::vector<llvm::Type *> &, std::vector<llvm::Type *> &, llvm::CallingConv::ID CC);
 
 #define LLVM_AGGREGATE_PARTIALLY_PASSED_IN_REGS(E, SE, ISR, CC)                \
   llvm_arm_aggregate_partially_passed_in_regs((E), (SE), (CC))
 
-extern Type *
-llvm_arm_aggr_type_for_struct_return(tree_node *type, CallingConv::ID CC);
+extern llvm::Type *
+llvm_arm_aggr_type_for_struct_return(tree_node *type, llvm::CallingConv::ID CC);
 
 /* LLVM_AGGR_TYPE_FOR_STRUCT_RETURN - Return LLVM Type if X can be
   returned as an aggregate, otherwise return NULL. */
@@ -79,7 +80,7 @@ llvm_arm_aggr_type_for_struct_return(tree_node *type, CallingConv::ID CC);
   llvm_arm_aggr_type_for_struct_return((X), (CC))
 
 extern void llvm_arm_extract_multiple_return_value(
-    Value *Src, Value *Dest, bool isVolatile, LLVMBuilder &B);
+    llvm::Value *Src, llvm::Value *Dest, bool isVolatile, LLVMBuilder &B);
 
 /* LLVM_EXTRACT_MULTIPLE_RETURN_VALUE - Extract multiple return value from
   SRC and assign it to DEST. */
@@ -87,7 +88,7 @@ extern void llvm_arm_extract_multiple_return_value(
   llvm_arm_extract_multiple_return_value((Src), (Dest), (V), (B))
 
 extern bool llvm_arm_should_pass_or_return_aggregate_in_regs(
-    tree_node *TreeType, CallingConv::ID CC);
+    tree_node *TreeType, llvm::CallingConv::ID CC);
 
 /* LLVM_SHOULD_NOT_USE_SHADOW_RETURN = Return true is the given type should
   not be returned via a shadow parameter with the given calling conventions. */
@@ -251,11 +252,11 @@ extern bool llvm_arm_should_pass_or_return_aggregate_in_regs(
       C = ("arm7tdmi");                                                        \
       break;                                                                   \
     }                                                                          \
-    F.AddFeature("vfp3", TARGET_VFP3);                                         \
+    F.AddFeature("vfp3");                                                      \
     if (!TARGET_VFP3)                                                          \
-      F.AddFeature("vfp2", TARGET_VFP && TARGET_HARD_FLOAT);                   \
-    F.AddFeature("neon", TARGET_NEON);                                         \
-    F.AddFeature("fp16", TARGET_FP16);                                         \
+      F.AddFeature("vfp2");                                                    \
+    F.AddFeature("neon");                                                      \
+    F.AddFeature("fp16");                                                      \
   }
 
 /* Encode arm / thumb modes and arm subversion number in the triplet. e.g.

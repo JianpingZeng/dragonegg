@@ -27,6 +27,7 @@
 
 // LLVM headers
 #include "llvm/IR/Module.h"
+#include "llvm/IR/LLVMContext.h"
 
 // System headers
 #include <gmp.h>
@@ -54,6 +55,8 @@ extern "C" {
 
 // Trees header.
 #include "dragonegg/Trees.h"
+
+using namespace llvm;
 
 static LLVMContext &Context = getGlobalContext();
 

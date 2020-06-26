@@ -314,10 +314,9 @@ static bool SizeOfGlobalMatchesDecl(GlobalValue *GV, tree decl) {
   // TODO: Change getTypeSizeInBits for aggregate types so it is no longer
   // rounded up to the alignment.
   uint64_t gcc_size = getInt64(DECL_SIZE(decl), true);
-  const DataLayout *DL = TheTarget->getSubtargetImpl()->getDataLayout();
+  const DataLayout *DL = TheTarget->getDataLayout();
   unsigned Align = 8 * DL->getABITypeAlignment(Ty);
-  return TheTarget->getSubtargetImpl()->getDataLayout()->getTypeAllocSizeInBits(
-             Ty) == ((gcc_size + Align - 1) / Align) * Align;
+  return DL->getTypeAllocSizeInBits(Ty) == ((gcc_size + Align - 1) / Align) * Align;
 }
 #endif
 
@@ -534,7 +533,7 @@ static void CreateTargetMachine(const std::string &TargetTriple) {
 
   TheTarget = TME->createTargetMachine(TargetTriple, CPU, FeatureStr, Options,
                                        RelocModel, CMModel, CodeGenOptLevel());
-  assert(TheTarget->getSubtargetImpl()->getDataLayout()->isBigEndian() ==
+  assert(TheTarget->getDataLayout()->isBigEndian() ==
          BYTES_BIG_ENDIAN);
 }
 
@@ -583,9 +582,8 @@ static void CreateModule(const std::string &TargetTriple) {
   // Install information about the target triple and data layout into the module
   // for optimizer use.
   TheModule->setTargetTriple(TargetTriple);
-  TheModule->setDataLayout(TheTarget->getSubtargetImpl()
-                               ->getDataLayout()
-                               ->getStringRepresentation());
+  TheModule->setDataLayout(TheTarget->getDataLayout()
+                           ->getStringRepresentation());
 }
 
 /// flag_default_initialize_globals - Whether global variables with no explicit
@@ -646,7 +644,7 @@ static void InitializeBackend(void) {
   // Create a module to hold the generated LLVM IR.
   CreateModule(TargetTriple);
 
-  TheFolder = new TargetFolder(TheTarget->getSubtargetImpl()->getDataLayout());
+  TheFolder = new TargetFolder(TheTarget->getDataLayout());
 
   if (debug_info_level > DINFO_LEVEL_NONE) {
     TheDebugInfo = new DebugInfo(TheModule);
@@ -675,13 +673,13 @@ static void InitializeBackend(void) {
 /// InitializeOutputStreams - Initialize the assembly code output streams.
 static void InitializeOutputStreams(bool Binary) {
   assert(!OutStream && "Output stream already initialized!");
-  std::error_code EC;
+  std::string EC;
 
   OutStream = new raw_fd_ostream(llvm_asm_file_name, EC,
                                  Binary ? sys::fs::F_None : sys::fs::F_Text);
 
-  if (EC)
-    report_fatal_error(EC.message());
+  if (!EC.empty())
+    report_fatal_error(EC);
 
   FormattedOutStream.setStream(*OutStream,
                                formatted_raw_ostream::PRESERVE_STREAM);
